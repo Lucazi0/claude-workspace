@@ -1,42 +1,63 @@
-# Pricer d'options européennes
+# Options Lab
 
-Pricer Black-Scholes-Merton en Python avec une interface web Streamlit, pour les options sur actions et sur devises (modèle de Garman-Kohlhagen).
+Site interactif de pricing et de gestion du risque des options, codé en Python : de la formule de Black-Scholes aux données de marché réelles.
 
-## Fonctionnalités
+**Site en ligne : https://pricer-options-lucas.streamlit.app**
 
-- **Prix et greeks** (delta, gamma, vega, theta, rho) d'un call et d'un put, chaque greek expliqué en une phrase.
-- **Sensibilités** : courbes du prix et des greeks en fonction du spot.
-- **Stratégies** : straddle, strangle, spreads, butterfly, risk reversal, covered call… avec le profil de gain/perte à l'échéance et aujourd'hui, et les points morts.
-- **Volatilité implicite** : retrouve la vol à partir d'un prix de marché (méthode de Brent).
-- **Mode FX** : le taux étranger remplace le rendement du dividende.
+## Les modules
 
-## Lancer l'application
+| Module | Contenu |
+|---|---|
+| **Pricer Black-Scholes** | Prix et greeks d'un call et d'un put, sensibilités au spot, 12 stratégies (straddle, spreads, butterfly, risk reversal…) avec points morts, volatilité implicite. Mode actions et mode FX (Garman-Kohlhagen). |
+| **Smile de volatilité** | Vols implicites recalculées à partir des prix réels d'options (Yahoo Finance) : skew par échéance, structure par terme, surface 3D. Forward implicite tiré de la parité call-put. |
+| **Monte Carlo** | Convergence vers Black-Scholes avec intervalle de confiance, option asiatique, options à barrière (knock-in / knock-out) et prix en fonction du niveau de barrière. |
+| **Options américaines** | Arbre binomial de Cox-Ross-Rubinstein visualisé pas à pas, prime d'exercice anticipé, frontière d'exercice optimal, convergence. |
+| **Delta-hedging** | Simulation d'un desk qui vend une option et la couvre : P&L par scénario, distribution, effet de la fréquence de couverture, coûts de transaction, vol réalisée contre vol implicite. |
+
+## Validation
+
+29 tests automatisés, notamment :
+- prix Black-Scholes et put américain sur arbre contrôlés contre les exemples du *Hull* (*Options, Futures and Other Derivatives*) ;
+- greeks comparés à des dérivées numériques (différences finies) ;
+- Monte Carlo et arbre binomial qui convergent vers la formule fermée ;
+- parité call-put, parité des barrières (knock-in + knock-out = vanille) ;
+- couverture fréquente qui réplique l'option, et vendeur perdant quand la vol réalisée dépasse la vol implicite ;
+- smile : vols connues retrouvées sur une chaîne synthétique, cotations aberrantes écartées.
 
 ```bash
-pip install -r requirements.txt
-streamlit run app.py
+pip install -r projets/pricer-options/requirements.txt pytest
+cd projets/pricer-options && python -m pytest tests
 ```
 
-## Tests
+## Lancer le site en local
+
+Depuis la racine du dépôt :
 
 ```bash
-pip install pytest
-python -m pytest tests
+pip install -r projets/pricer-options/requirements.txt
+streamlit run projets/pricer-options/app.py
 ```
-
-Les tests vérifient les valeurs de référence du Hull, la parité call-put, les greeks contre des différences finies et l'aller-retour prix ↔ volatilité implicite.
 
 ## Structure
 
 ```
-pricer/black_scholes.py   prix, greeks, volatilité implicite
-pricer/strategies.py      stratégies multi-jambes, payoffs, points morts
-app.py                    interface Streamlit
-tests/                    tests unitaires
+pricer/                  moteurs de calcul (indépendants de l'interface)
+  black_scholes.py       prix, greeks, volatilité implicite
+  strategies.py          stratégies multi-jambes, payoffs, points morts
+  monte_carlo.py         trajectoires, européennes, asiatiques, barrières
+  binomial.py            arbre CRR, options américaines, frontière d'exercice
+  hedging.py             simulation de delta-hedging
+  market_data.py         forward implicite, smile de volatilité
+  yahoo.py               récupération des chaînes d'options
+views/                   une page du site par module
+data/                    copie des prix d'options du SPY (secours si Yahoo ne répond pas)
+scripts/snapshot_chain.py  mise à jour de cette copie
+tests/                   tests unitaires
+app.py                   point d'entrée du site
 ```
 
 ## Conventions
 
-- Vega et rho : pour +1 point (de vol ou de taux).
-- Theta : par jour calendaire.
+- Vega et rho : pour +1 point (de vol ou de taux). Theta : par jour calendaire.
 - Gamma (dans l'interface) : variation du delta pour +1 % de spot.
+- Monte Carlo : variables antithétiques, barrières observées une fois par jour.

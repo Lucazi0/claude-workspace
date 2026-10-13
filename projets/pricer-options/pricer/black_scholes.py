@@ -90,9 +90,7 @@ def implied_volatility(market_price, S, K, T, r, option_type="call", q=0.0):
     else:
         lower, upper = max(K_disc - S_disc, 0.0), K_disc
     if not lower < market_price < upper:
-        raise ValueError(
-            f"Prix hors des bornes d'absence d'arbitrage : il doit être entre {lower:.4f} et {upper:.4f}"
-        )
+        raise ValueError(f"Prix hors des bornes d'absence d'arbitrage : il doit être entre {lower:.4f} et {upper:.4f}")
     return brentq(
         lambda sigma: price(S, K, T, r, sigma, option_type, q) - market_price,
         1e-6,
