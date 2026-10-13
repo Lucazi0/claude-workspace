@@ -1,0 +1,46 @@
+# Rafraîchit chaque jour de semaine, pendant la séance, la copie des prix d'options du SPY utilisée par
+# la page « Smile de volatilité » quand Yahoo Finance ne répond pas en direct.
+name: Mise à jour des données de marché
+
+on:
+  schedule:
+    - cron: "30 19 * * 1-5" # 19h30 UTC : pendant la séance de Wall Street, quand bid et ask sont cotés
+  workflow_dispatch: # lancement manuel depuis l'onglet Actions
+
+permissions:
+  contents: write
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer les dépendances
+        run: pip install numpy scipy pandas "yfinance>=0.2.50"
+
+      - name: Télécharger la chaîne d'options du SPY
+        working-directory: projets/pricer-options
+        run: |
+          for attempt in 1 2 3; do
+            python scripts/snapshot_chain.py SPY && exit 0
+            echo "Tentative $attempt échouée, nouvel essai dans 60 s"
+            sleep 60
+          done
+          echo "::warning::Yahoo Finance indisponible : la copie précédente est conservée."
+
+      - name: Enregistrer les nouvelles données
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add projets/pricer-options/data
+          if git diff --cached --quiet; then
+            echo "Pas de nouvelles données."
+          else
+            git commit -m "Met à jour les prix d'options du SPY"
+            git push
+          fi

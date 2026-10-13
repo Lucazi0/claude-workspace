@@ -16,6 +16,11 @@ def mid_prices(chain):
     return quotes
 
 
+def quoted_count(chain):
+    """Nombre d'options avec une vraie cotation (bid > 0). Yahoo met souvent bid et ask à 0 hors séance."""
+    return len(mid_prices(chain))
+
+
 def implied_forward(chain, T, r, spot, n_strikes=6):
     """Forward implicite tiré de la parité call-put : C − P = e^(−rT)·(F − K).
 

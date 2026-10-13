@@ -5,7 +5,7 @@ import pytest
 from pricer import price
 from pricer.binomial import crr_price, crr_tree, exercise_boundary
 from pricer.hedging import simulate_delta_hedge
-from pricer.market_data import atm_vol, compute_smile, implied_forward
+from pricer.market_data import atm_vol, compute_smile, implied_forward, quoted_count
 from pricer.monte_carlo import asian_mc, barrier_payoffs, convergence, european_mc, simulate_gbm
 
 S, K, T, r, SIGMA, Q = 100.0, 100.0, 1.0, 0.03, 0.2, 0.01
@@ -147,3 +147,10 @@ def test_smile_blends_put_and_call_near_the_forward():
     jumps = smile["iv"].diff().abs().max()
     assert jumps < 0.003  # pas de marche d'un point de vol au passage put -> call
     assert smile["iv"].iloc[0] > smile["iv"].iloc[-1]
+
+
+def test_quoted_count_ignores_zero_bids():
+    chain = _synthetic_chain(100.0, 0.5, 0.04, 0.015, lambda k: 0.2)
+    total = len(chain)
+    chain.loc[chain.index[:5], ["bid", "ask"]] = 0.0  # comme Yahoo hors séance
+    assert quoted_count(chain) == total - 5

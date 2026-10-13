@@ -2,7 +2,9 @@
 
 Site interactif de pricing et de gestion du risque des options, codé en Python : de la formule de Black-Scholes aux données de marché réelles.
 
-**Site en ligne : https://pricer-options-lucas.streamlit.app**
+**Site en ligne : https://pricer-options-lucas.streamlit.app** · version anglaise : https://pricer-options-lucas.streamlit.app/?lang=EN
+
+Le site est bilingue (bouton FR / EN) et propose un mode sombre (bouton 🌙 / ☀️).
 
 ## Les modules
 
@@ -16,7 +18,7 @@ Site interactif de pricing et de gestion du risque des options, codé en Python 
 
 ## Validation
 
-29 tests automatisés, notamment :
+30 tests automatisés, notamment :
 - prix Black-Scholes et put américain sur arbre contrôlés contre les exemples du *Hull* (*Options, Futures and Other Derivatives*) ;
 - greeks comparés à des dérivées numériques (différences finies) ;
 - Monte Carlo et arbre binomial qui convergent vers la formule fermée ;
@@ -55,6 +57,14 @@ scripts/snapshot_chain.py  mise à jour de cette copie
 tests/                   tests unitaires
 app.py                   point d'entrée du site
 ```
+
+## Mise à jour des données
+
+- En direct, la page Smile interroge Yahoo Finance (cache d'une heure).
+- Si Yahoo ne répond pas ou ne fournit pas de cotations exploitables (fréquent hors séance américaine),
+  le site affiche une copie enregistrée des prix du SPY.
+- Cette copie est rafraîchie automatiquement chaque jour de semaine pendant la séance par une GitHub Action
+  (`.github/workflows/update-market-data.yml`), qui ne l'écrase que si les nouvelles cotations sont complètes.
 
 ## Conventions
 

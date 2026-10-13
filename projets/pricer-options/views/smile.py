@@ -11,101 +11,174 @@ import streamlit as st
 
 from pricer.market_data import atm_vol, compute_smile
 from pricer.yahoo import fetch_chain, year_fraction
-from views.common import GREY, PALETTE, RED, footer, key_points, style
+from views.common import GREY, PALETTE, RED, footer, is_english, key_points, style, t
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 TICKERS = {
-    "SPY": "SPY : ETF S&P 500",
-    "QQQ": "QQQ : ETF Nasdaq 100",
-    "IWM": "IWM : ETF Russell 2000 (petites capitalisations)",
-    "AAPL": "AAPL : Apple",
-    "NVDA": "NVDA : Nvidia",
-    "TSLA": "TSLA : Tesla",
-    "GLD": "GLD : ETF or",
+    "SPY": ("SPY : ETF S&P 500", "SPY: S&P 500 ETF"),
+    "QQQ": ("QQQ : ETF Nasdaq 100", "QQQ: Nasdaq 100 ETF"),
+    "IWM": ("IWM : ETF Russell 2000 (petites capitalisations)", "IWM: Russell 2000 ETF (small caps)"),
+    "AAPL": ("AAPL : Apple", "AAPL: Apple"),
+    "NVDA": ("NVDA : Nvidia", "NVDA: Nvidia"),
+    "TSLA": ("TSLA : Tesla", "TSLA: Tesla"),
+    "GLD": ("GLD : ETF or", "GLD: gold ETF"),
 }
 
 
-@st.cache_data(ttl=3600, show_spinner="Récupération des prix d'options sur Yahoo Finance…")
+@st.cache_data(ttl=3600, show_spinner=False)
 def live_chain(ticker):
     return fetch_chain(ticker)
 
 
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def snapshot_chain():
     meta = json.loads((DATA_DIR / "spy_meta.json").read_text())
     return pd.read_csv(DATA_DIR / "spy_chain.csv"), meta["spot"], date.fromisoformat(meta["asof"])
 
 
-@st.cache_data(show_spinner="Calcul des volatilités implicites…")
+@st.cache_data(show_spinner=False)
 def all_smiles(chain, spot, asof, r):
     smiles = {}
     for expiry, quotes in chain.groupby("expiry"):
         T = year_fraction(expiry, asof)
         smile, forward = compute_smile(quotes, spot, T, r)
         smile = smile[(smile["moneyness"] > 0.7) & (smile["moneyness"] < 1.25)]
-        if len(smile) >= 5:
+        if len(smile) >= 10:
             smiles[expiry] = {"T": T, "forward": forward, "smile": smile, "atm": atm_vol(smile)}
     return smiles
 
 
+def fmt_date(d):
+    return f"{d:%m/%d/%Y}" if is_english() else f"{d:%d/%m/%Y}"
+
+
 with st.sidebar:
-    st.header("Données")
-    ticker = st.selectbox("Sous-jacent", list(TICKERS), format_func=TICKERS.get)
-    use_live = st.toggle("Données en direct", value=True, help="Sinon : copie enregistrée des prix du SPY.")
+    st.header(t("Données", "Data"))
+    ticker = st.selectbox(
+        t("Sous-jacent", "Underlying"),
+        list(TICKERS),
+        format_func=lambda k: t(*TICKERS[k]),
+        key="smile-ticker",
+    )
+    use_live = st.toggle(
+        t("Données en direct", "Live data"),
+        value=True,
+        help=t("Sinon : copie enregistrée des prix du SPY.", "Otherwise: stored copy of SPY prices."),
+        key="smile-live",
+    )
     r = (
         st.number_input(
-            "Taux sans risque USD (%)",
+            t("Taux sans risque USD (%)", "USD risk-free rate (%)"),
             value=4.0,
             step=0.25,
             format="%.2f",
-            help="Sert à actualiser. Le dividende, lui, est déduit des prix (forward implicite).",
+            help=t(
+                "Sert à actualiser. Le dividende, lui, est déduit des prix (forward implicite).",
+                "Used for discounting. The dividend is inferred from prices (implied forward).",
+            ),
+            key="smile-rate",
         )
         / 100
     )
 
-st.title("Smile de volatilité")
+st.title(t("Smile de volatilité", "Volatility smile"))
 st.caption(
-    "Black-Scholes suppose une volatilité unique. Le marché, lui, cote une volatilité différente pour chaque "
-    "strike et chaque échéance. Ici, je recalcule ces volatilités à partir des prix réels des options."
+    t(
+        "Black-Scholes suppose une volatilité unique. Le marché, lui, cote une volatilité différente pour chaque "
+        "strike et chaque échéance. Ici, je recalcule ces volatilités à partir des prix réels des options.",
+        "Black-Scholes assumes a single volatility. The market quotes a different volatility for every strike "
+        "and every maturity. Here I back these volatilities out of real option prices.",
+    )
 )
 
-source_note = None
+MIN_EXPIRIES = 3  # en dessous, le live est jugé inexploitable
+
+
+def load_snapshot():
+    chain, spot, asof = snapshot_chain()
+    note = t(
+        f"Copie enregistrée des prix du SPY au {fmt_date(asof)}.", f"Stored copy of SPY prices as of {fmt_date(asof)}."
+    )
+    return chain, spot, asof, note
+
+
+smiles = None
 if use_live:
     try:
-        chain, spot, asof = live_chain(ticker)
-        source_note = f"Données Yahoo Finance du {asof:%d/%m/%Y} (prix bid/ask, mis à jour toutes les heures)."
+        with st.spinner(
+            t("Récupération des prix d'options sur Yahoo Finance…", "Fetching option prices from Yahoo Finance…")
+        ):
+            chain, spot, asof = live_chain(ticker)
+        with st.spinner(t("Calcul des volatilités implicites…", "Computing implied volatilities…")):
+            smiles = all_smiles(chain, spot, asof, r)
+        source_note = t(
+            f"Données Yahoo Finance du {fmt_date(asof)} (prix bid/ask, mis à jour toutes les heures).",
+            f"Yahoo Finance data as of {fmt_date(asof)} (bid/ask prices, refreshed hourly).",
+        )
+        if len(smiles) < MIN_EXPIRIES:
+            st.info(
+                t(
+                    f"Yahoo Finance ne fournit pas de cotations exploitables pour {ticker} en ce moment (c'est "
+                    "fréquent en dehors des heures de marché américaines) : affichage de la copie enregistrée du SPY.",
+                    f"Yahoo Finance has no usable quotes for {ticker} right now (common outside US market hours): "
+                    "showing the stored copy of SPY prices.",
+                )
+            )
+            smiles = None
     except Exception:
-        st.warning("Yahoo Finance ne répond pas pour le moment : affichage de la copie enregistrée du SPY.")
-        use_live = False
-if not use_live:
-    chain, spot, asof = snapshot_chain()
+        st.warning(
+            t(
+                "Yahoo Finance ne répond pas pour le moment : affichage de la copie enregistrée du SPY.",
+                "Yahoo Finance is not responding right now: showing the stored copy of SPY prices.",
+            )
+        )
+if smiles is None:
+    chain, spot, asof, source_note = load_snapshot()
     ticker = "SPY"
-    source_note = f"Copie enregistrée des prix du SPY au {asof:%d/%m/%Y}."
+    with st.spinner(t("Calcul des volatilités implicites…", "Computing implied volatilities…")):
+        smiles = all_smiles(chain, spot, asof, r)
 
-smiles = all_smiles(chain, spot, asof, r)
 if not smiles:
-    st.error("Pas assez d'options liquides pour tracer un smile sur ce sous-jacent.")
+    st.error(
+        t(
+            "Pas assez d'options liquides pour tracer un smile sur ce sous-jacent.",
+            "Not enough liquid options to draw a smile for this underlying.",
+        )
+    )
     st.stop()
 
 expiries = list(smiles)
 c1, c2, c3 = st.columns(3)
-c1.metric(f"Spot {ticker}", f"{spot:,.2f}".replace(",", " "))
-c2.metric("Vol à la monnaie, 1re échéance", f"{smiles[expiries[0]]['atm'] * 100:.1f} %")
-c3.metric("Vol à la monnaie, dernière échéance", f"{smiles[expiries[-1]]['atm'] * 100:.1f} %")
+c1.metric(f"Spot {ticker}", f"{spot:,.2f}".replace(",", " " if not is_english() else ","))
+c2.metric(t("Vol à la monnaie, 1re échéance", "ATM vol, first expiry"), f"{smiles[expiries[0]]['atm'] * 100:.1f} %")
+c3.metric(
+    t("Vol à la monnaie, dernière échéance", "ATM vol, last expiry"), f"{smiles[expiries[-1]]['atm'] * 100:.1f} %"
+)
 st.caption(source_note)
 
 tab_smile, tab_term, tab_surface, tab_data = st.tabs(
-    ["Smile par échéance", "Structure par terme", "Surface 3D", "Données"]
+    [
+        t("Smile par échéance", "Smile by expiry"),
+        t("Structure par terme", "Term structure"),
+        t("Surface 3D", "3D surface"),
+        t("Données", "Data"),
+    ]
 )
 
 
 def label(expiry):
-    return f"{pd.Timestamp(expiry):%d/%m/%Y} ({smiles[expiry]['T'] * 365:.0f} j)"
+    return f"{fmt_date(pd.Timestamp(expiry))} ({smiles[expiry]['T'] * 365:.0f} {t('j', 'd')})"
 
 
 with tab_smile:
     default = [expiries[i] for i in sorted({0, len(expiries) // 2, len(expiries) - 1})]
-    chosen = st.multiselect("Échéances à afficher", expiries, default=default, format_func=label)
+    chosen = st.multiselect(
+        t("Échéances à afficher", "Expiries to show"),
+        expiries,
+        default=default,
+        format_func=label,
+        key=f"smile-expiries-{ticker}",
+    )
     fig = go.Figure()
     for i, expiry in enumerate(chosen):
         s = smiles[expiry]["smile"]
@@ -121,42 +194,86 @@ with tab_smile:
                 hovertemplate="Strike %{customdata[0]} (%{customdata[1]}) : %{y:.1f} %<extra></extra>",
             )
         )
-    fig.add_vline(x=100, line_dash="dash", line_color=GREY, annotation_text="À la monnaie (K = forward)")
+    fig.add_vline(
+        x=100,
+        line_dash="dash",
+        line_color=GREY,
+        annotation_text=t("À la monnaie (K = forward)", "At the money (K = forward)"),
+    )
     st.plotly_chart(
-        style(fig, "Strike en % du forward", "Volatilité implicite (%)", height=460), use_container_width=True
+        style(
+            fig,
+            t("Strike en % du forward", "Strike as % of forward"),
+            t("Volatilité implicite (%)", "Implied volatility (%)"),
+            height=460,
+        ),
+        use_container_width=True,
     )
     key_points(
         [
-            "Sur les actions, la courbe **penche vers la gauche** (*skew*) : les puts protégeant contre une baisse "
-            "se paient plus cher, car les krachs sont brutaux et les investisseurs achètent en permanence de la protection.",
-            "Le skew est plus marqué sur les échéances courtes : à court terme, le marché redoute surtout un choc soudain.",
-            "Sur une seule action (ex. NVDA, TSLA), on voit souvent un vrai **smile** symétrique, et des vols bien plus "
-            "élevées autour des publications de résultats.",
-            "Si Black-Scholes était juste, toutes ces courbes seraient des droites horizontales.",
+            t(
+                "Sur les actions, la courbe **penche vers la gauche** (*skew*) : les puts protégeant contre une baisse "
+                "se paient plus cher, car les krachs sont brutaux et les investisseurs achètent en permanence de la "
+                "protection.",
+                "On equities the curve **slopes down to the right** (*skew*): puts protecting against a fall are more "
+                "expensive, because crashes are sudden and investors constantly buy protection.",
+            ),
+            t(
+                "Le skew est plus marqué sur les échéances courtes : à court terme, le marché redoute surtout un "
+                "choc soudain.",
+                "The skew is steeper on short expiries: in the near term, the market mostly fears a sudden shock.",
+            ),
+            t(
+                "Sur une seule action (ex. NVDA, TSLA), on voit souvent un vrai **smile** symétrique, et des vols "
+                "bien plus élevées autour des publications de résultats.",
+                "On a single stock (e.g. NVDA, TSLA) you often see a true symmetric **smile**, and much higher vols "
+                "around earnings releases.",
+            ),
+            t(
+                "Si Black-Scholes était juste, toutes ces courbes seraient des droites horizontales.",
+                "If Black-Scholes were right, all these curves would be flat lines.",
+            ),
         ]
     )
 
 with tab_term:
-    term = pd.DataFrame([{"jours": v["T"] * 365, "atm": v["atm"] * 100, "expiry": e} for e, v in smiles.items()])
+    term = pd.DataFrame([{"days": v["T"] * 365, "atm": v["atm"] * 100} for v in smiles.values()])
     fig = go.Figure(
         go.Scatter(
-            x=term["jours"],
+            x=term["days"],
             y=term["atm"],
             mode="lines+markers",
             line=dict(color=RED, width=2.5),
             marker=dict(size=8),
-            name="Vol à la monnaie",
+            name=t("Vol à la monnaie", "ATM vol"),
         )
     )
     st.plotly_chart(
-        style(fig, "Maturité (jours)", "Volatilité implicite à la monnaie (%)", height=420), use_container_width=True
+        style(
+            fig,
+            t("Maturité (jours)", "Maturity (days)"),
+            t("Volatilité implicite à la monnaie (%)", "At-the-money implied volatility (%)"),
+            height=420,
+        ),
+        use_container_width=True,
     )
     key_points(
         [
-            "En période calme, la courbe **monte** avec la maturité : l'incertitude s'accumule sur un horizon long.",
-            "En période de stress, elle **s'inverse** : la vol courte explose (le marché panique maintenant) "
-            "pendant que la vol longue bouge moins.",
-            "Une bosse sur une échéance précise signale souvent un événement daté : résultats, élection, réunion de la Fed.",
+            t(
+                "En période calme, la courbe **monte** avec la maturité : l'incertitude s'accumule sur un horizon long.",
+                "In calm markets the curve **rises** with maturity: uncertainty builds up over a long horizon.",
+            ),
+            t(
+                "En période de stress, elle **s'inverse** : la vol courte explose (le marché panique maintenant) "
+                "pendant que la vol longue bouge moins.",
+                "In stressed markets it **inverts**: short-dated vol spikes (the market panics now) "
+                "while long-dated vol moves less.",
+            ),
+            t(
+                "Une bosse sur une échéance précise signale souvent un événement daté : résultats, élection, "
+                "réunion de la Fed.",
+                "A bump at a specific expiry often flags a scheduled event: earnings, an election, a Fed meeting.",
+            ),
         ]
     )
 
@@ -179,36 +296,45 @@ with tab_surface:
         height=600,
         margin=dict(l=0, r=0, t=10, b=0),
         scene=dict(
-            xaxis_title="Strike (% du forward)",
-            yaxis_title="Maturité (jours)",
-            zaxis_title="Vol implicite (%)",
+            xaxis_title=t("Strike (% du forward)", "Strike (% of forward)"),
+            yaxis_title=t("Maturité (jours)", "Maturity (days)"),
+            zaxis_title=t("Vol implicite (%)", "Implied vol (%)"),
             camera=dict(eye=dict(x=-1.6, y=-1.6, z=0.9)),
         ),
     )
     st.plotly_chart(fig, use_container_width=True)
     st.caption(
-        "Clique-glisse pour faire tourner la surface. C'est l'objet que les desks de dérivés suivent en permanence. "
-        "Les échéances de moins de 20 jours sont exclues, car trop bruitées."
+        t(
+            "Clique-glisse pour faire tourner la surface. C'est l'objet que les desks de dérivés suivent en "
+            "permanence. Les échéances de moins de 20 jours sont exclues, car trop bruitées.",
+            "Click and drag to rotate the surface. It is what derivatives desks monitor all day. "
+            "Expiries under 20 days are excluded as too noisy.",
+        )
     )
 
 with tab_data:
-    expiry = st.selectbox("Échéance", expiries, format_func=label, key="data-expiry")
+    expiry = st.selectbox(t("Échéance", "Expiry"), expiries, format_func=label, key=f"data-expiry-{ticker}")
     info = smiles[expiry]
     implied_q = r - np.log(info["forward"] / spot) / info["T"]
     st.markdown(
-        f"Forward implicite : **{info['forward']:.2f}**, soit un rendement du dividende implicite de "
-        f"**{implied_q * 100:.2f} %**."
+        t(
+            f"Forward implicite : **{info['forward']:.2f}**, soit un rendement du dividende implicite de "
+            f"**{implied_q * 100:.2f} %**.",
+            f"Implied forward: **{info['forward']:.2f}**, i.e. an implied dividend yield of **{implied_q * 100:.2f}%**.",
+        )
     )
+    iv_col = t("Vol implicite (%)", "Implied vol (%)")
     table = info["smile"].rename(
-        columns={"strike": "Strike", "type": "Option utilisée", "iv": "Vol implicite", "moneyness": "K / F"}
+        columns={"strike": "Strike", "type": t("Option utilisée", "Option used"), "iv": iv_col, "moneyness": "K / F"}
     )
-    table["Vol implicite"] = (table["Vol implicite"] * 100).round(2)
+    table[iv_col] = (table[iv_col] * 100).round(2)
     table["K / F"] = table["K / F"].round(3)
     st.dataframe(table, hide_index=True, use_container_width=True)
 
-with st.expander("Méthode"):
+with st.expander(t("Méthode", "Method")):
     st.markdown(
-        """
+        t(
+            """
 1. Pour chaque option : prix milieu = (bid + ask) / 2. On écarte les options sans bid, trop peu chères
    ou avec un écart bid/ask supérieur à 50 % du prix.
 2. **Forward implicite** par la parité call-put, C − P = e^(−rT)·(F − K), sur les strikes proches de la monnaie.
@@ -218,9 +344,25 @@ with st.expander("Méthode"):
 4. Vol implicite de chaque option par la méthode de Brent (le même solveur que la page Pricer).
 5. On écarte les points trop éloignés de leurs voisins (cotations périmées sur des strikes peu traités).
 
-Limite : les options sur actions américaines sont de style américain. L'effet de l'exercice anticipé est
-négligeable pour les options en dehors de la monnaie utilisées ici.
-"""
+Limite : les options sur actions américaines sont de style américain, alors que le calcul utilise Black-Scholes
+(européen). L'écart est faible sur les options en dehors de la monnaie retenues ici ; il se voit surtout sur les
+puts longs, d'où la pondération put/call autour du forward.
+""",
+            """
+1. For each option: mid price = (bid + ask) / 2. Options with no bid, too cheap, or with a bid/ask spread
+   above 50% of the price are dropped.
+2. **Implied forward** from put-call parity, C − P = e^(−rT)·(F − K), on near-the-money strikes.
+   No need to guess the dividend: it is embedded in the prices.
+3. **Puts below the forward and calls above** are kept, as they are the most liquid, just like on a desk.
+   Around the forward (± 4%), the two are blended gradually to avoid a jump.
+4. Implied vol of each option with Brent's method (the same solver as the Pricer page).
+5. Points too far from their neighbours are dropped (stale quotes on thinly traded strikes).
+
+Limitation: US equity options are American-style, while the calculation uses (European) Black-Scholes.
+The gap is small for the out-of-the-money options used here; it mostly shows on long-dated puts,
+hence the put/call blending around the forward.
+""",
+        )
     )
 
 footer()
