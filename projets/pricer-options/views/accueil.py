@@ -2,9 +2,13 @@
 
 import streamlit as st
 
-from views.common import GITHUB_URL, footer, t
+from views.common import AUTHOR, GITHUB_URL, LINKEDIN_URL, footer, t
 
 st.title("Options Lab")
+author_col, linkedin_col, github_col, _ = st.columns([2, 1, 1, 3], vertical_alignment="center")
+author_col.markdown(t(f"Réalisé par **{AUTHOR}**", f"Built by **{AUTHOR}**"))
+linkedin_col.link_button("LinkedIn", LINKEDIN_URL, icon=":material/person:", use_container_width=True)
+github_col.link_button("GitHub", GITHUB_URL, icon=":material/code:", use_container_width=True)
 st.markdown(
     t(
         "#### Pricing et gestion du risque des options, de la formule de Black-Scholes aux données de marché réelles",

@@ -1,5 +1,7 @@
 # Options Lab
 
+Réalisé par **Lucas Fourage** · [LinkedIn](https://www.linkedin.com/in/lucas-fourage-3bb65529b/)
+
 Site interactif de pricing et de gestion du risque des options, codé en Python : de la formule de Black-Scholes aux données de marché réelles.
 
 **Site en ligne : https://pricer-options-lucas.streamlit.app** · version anglaise : https://pricer-options-lucas.streamlit.app/?lang=EN

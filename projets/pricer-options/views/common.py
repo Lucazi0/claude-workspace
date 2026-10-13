@@ -11,6 +11,8 @@ GREY = "#6b7280"
 PALETTE = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#7c3aed", "#0891b2", "#db2777", "#4b5563"]
 
 GITHUB_URL = "https://github.com/Lucazi0/claude-workspace/tree/main/projets/pricer-options"
+AUTHOR = "Lucas Fourage"
+LINKEDIN_URL = "https://www.linkedin.com/in/lucas-fourage-3bb65529b/"
 
 # Chemins des pages (st.Page en déduit l'URL à partir du nom de fichier).
 PAGE_PATHS = ["pricer", "smile", "monte_carlo", "americaines", "hedging"]
@@ -160,6 +162,6 @@ def market_inputs(
 def footer():
     st.divider()
     st.caption(
-        "Options Lab · Python, numpy, scipy, Streamlit · "
+        f"Options Lab · {t('Réalisé par', 'Built by')} {AUTHOR} · [LinkedIn]({LINKEDIN_URL}) · "
         + t(f"[Code source et tests sur GitHub]({GITHUB_URL})", f"[Source code and tests on GitHub]({GITHUB_URL})")
     )
